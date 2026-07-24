@@ -1,0 +1,5 @@
+# Namespace: uno "spazio" separato del cluster dedicato all'app
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mensa

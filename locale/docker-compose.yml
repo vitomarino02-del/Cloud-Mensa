@@ -1,0 +1,69 @@
+# Esecuzione locale con Docker Compose (test rapido, senza Kubernetes).
+# Avvio:  docker compose up --build   ->  http://localhost:8080
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mensa
+      POSTGRES_PASSWORD: mensa
+      POSTGRES_DB: mensa
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mensa"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports: ["15672:15672"]   # console web (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  menu-service:
+    build: ./menu-service
+    environment:
+      DATABASE_URL: postgresql://mensa:mensa@postgres:5432/mensa
+      STORAGE_BACKEND: local        # in Fase 2 (AWS) diventa 's3'
+      IMAGE_DIR: /data/images
+    volumes: ["images:/data/images"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  order-service:
+    build: ./order-service
+    environment:
+      DATABASE_URL: postgresql://mensa:mensa@postgres:5432/mensa
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  kitchen-service:
+    build: ./kitchen-service
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on: [menu-service, order-service]
+
+volumes:
+  pgdata:
+  images:

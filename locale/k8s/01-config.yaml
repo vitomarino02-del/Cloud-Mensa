@@ -1,0 +1,13 @@
+# ConfigMap: le variabili d'ambiente dei servizi (l'equivalente di 'environment:' nel compose).
+# In Fase 2 (AWS) cambieranno solo questi valori: DATABASE_URL -> RDS, STORAGE_BACKEND -> s3, ecc.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mensa-config
+  namespace: mensa
+data:
+  DATABASE_URL: postgresql://mensa:mensa@postgres:5432/mensa
+  REDIS_URL: redis://redis:6379/0
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  STORAGE_BACKEND: local
+  IMAGE_DIR: /data/images

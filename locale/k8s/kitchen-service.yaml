@@ -1,0 +1,20 @@
+# kitchen-service: solo Deployment, nessun Service (non riceve richieste, ascolta la coda)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-service
+  namespace: mensa
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kitchen-service }
+  template:
+    metadata:
+      labels: { app: kitchen-service }
+    spec:
+      containers:
+        - name: kitchen-service
+          image: mensa/kitchen-service:1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef: { name: mensa-config }

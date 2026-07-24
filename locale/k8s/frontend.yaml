@@ -1,0 +1,33 @@
+# frontend: Nginx con la SPA React; Service di tipo NodePort = esposto
+# sulla porta 30080 di OGNI nodo del cluster (l'unica porta d'ingresso dell'app)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: mensa
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: mensa/frontend:1.0
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: mensa
+spec:
+  type: NodePort
+  selector: { app: frontend }
+  ports:
+    - port: 80
+      nodePort: 30080

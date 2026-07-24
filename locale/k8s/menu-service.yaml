@@ -1,0 +1,41 @@
+# menu-service: catalogo piatti
+# imagePullPolicy Never = usa l'immagine caricata a mano nei nodi (niente registry in locale)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-service
+  namespace: mensa
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: menu-service }
+  template:
+    metadata:
+      labels: { app: menu-service }
+    spec:
+      containers:
+        - name: menu-service
+          image: mensa/menu-service:1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef: { name: mensa-config }
+          ports:
+            - containerPort: 5001
+          readinessProbe:
+            httpGet: { path: /healthz, port: 5001 }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - { name: images, mountPath: /data/images }
+      volumes:
+        - name: images
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: menu-service
+  namespace: mensa
+spec:
+  selector: { app: menu-service }
+  ports:
+    - port: 5001
