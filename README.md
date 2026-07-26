@@ -1,4 +1,4 @@
-# Cloud Mensa
+# Cloud Mensa ---- VERSIONE LOCALE
 
 Applicazione web per ordinare alla mensa universitaria, sviluppata come progetto per il corso
 di Sistemi Cloud. Architettura 3-tier a microservizi, containerizzata con Docker e deployata
