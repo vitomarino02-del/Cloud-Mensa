@@ -1,5 +1,5 @@
 # ConfigMap: le variabili d'ambiente dei servizi (l'equivalente di 'environment:' nel compose).
-# In Fase 2 (AWS) cambieranno solo questi valori: DATABASE_URL -> RDS, STORAGE_BACKEND -> s3, ecc.
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
