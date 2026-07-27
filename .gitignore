@@ -13,8 +13,8 @@ terraform.tfstate.backup
 .cloud-init.generated.yaml
 
 # Ansible (file generati: inventory da Terraform, kubeconfig dal playbook)
-ansible/inventory.ini
-ansible/kubeconfig
+inventory.ini
+kubeconfig
 
 # Varie
 .env
