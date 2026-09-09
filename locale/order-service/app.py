@@ -10,7 +10,7 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError, ProgrammingError, OperationalError
 import redis
-import pika
+import pika #rabbitmq
 
 db = SQLAlchemy()
 log = logging.getLogger("order-service")
@@ -105,9 +105,9 @@ def board_all():
 def publish(event_type, payload):
     body = json.dumps({"type": event_type, "data": payload})
     try:
-        conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
-        ch = conn.channel()
-        ch.exchange_declare(exchange=EXCHANGE, exchange_type="fanout", durable=True)
+        conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL)) #tenta di stabilire la connessione con RABBITMQ
+        ch = conn.channel() #apre il canale di comunicazione
+        ch.exchange_declare(exchange=EXCHANGE, exchange_type="fanout", durable=True) #fanout exchange fa si che il messaggio arrivi a tutte le code collegate
         ch.basic_publish(exchange=EXCHANGE, routing_key="", body=body)
         conn.close()
     except Exception as e:
