@@ -5,6 +5,15 @@
 - name: Prerequisiti comuni a tutti i nodi
   hosts: k8s_cluster
   become: true
+
+  pre_tasks:
+    # le VM appena create stanno ancora eseguendo cloud-init, che tiene
+    # occupato apt: senza questa attesa i task successivi restano appesi
+    - name: Attendi che cloud-init abbia finito
+      command: cloud-init status --wait
+      failed_when: false
+      changed_when: false
+
   tasks:
     - name: Disattiva la swap (richiesto da kubelet)
       command: swapoff -a
@@ -29,13 +38,21 @@
           net.bridge.bridge-nf-call-iptables  = 1
           net.bridge.bridge-nf-call-ip6tables = 1
           net.ipv4.ip_forward                 = 1
-      notify: applica sysctl
+
+    # task normale e non handler: gli handler girano a fine play, quindi se il
+    # playbook fallisce prima non vengono mai eseguiti, e al rilancio il task
+    # sopra risulta "ok" e non li notifica piu'. Risultato: il file c'e' ma il
+    # valore non e' caricato, e kubeadm init fallisce sul controllo ip_forward.
+    - name: Applica i parametri sysctl
+      command: sysctl --system
+      changed_when: false
 
     - name: Installa containerd (il runtime dei container)
       apt:
         name: containerd
         state: present
         update_cache: true
+        lock_timeout: 300
 
     - name: Configura containerd con cgroup systemd
       shell: |
@@ -68,9 +85,6 @@
       changed_when: false
 
   handlers:
-    - name: applica sysctl
-      command: sysctl --system
-
     - name: riavvia containerd
       systemd:
         name: containerd

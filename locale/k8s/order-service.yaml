@@ -1,4 +1,4 @@
-# order-service: 2 repliche per mostrare la scalabilita' orizzontale
+# order-service: 2 repliche per  la scalabilita' orizzontale
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -63,6 +63,18 @@ Prerequisiti: Multipass, Terraform, Ansible, kubectl, una chiave SSH in `~/.ssh/
 Su Windows i comandi vanno lanciati da WSL2 (vedi note più sotto). Dalla cartella `locale/`:
 
 ```
+bash up.sh
+```
+
+Lo script incatena i passaggi: crea le VM con Terraform, verifica che raggiungano
+internet (vedi la nota sulla rete WSL più sotto), monta il cluster con Ansible,
+costruisce e importa le immagini nei nodi e applica i manifest. Per fermare tutto:
+`bash down.sh`, oppure `multipass stop --all` se è solo una pausa, in quel caso al
+riavvio il cluster riparte da solo.
+
+Questo file non fa altro che lanciare i seguenti comandi:
+
+```
 terraform init && terraform apply      # crea le 3 VM e genera ansible/inventory.ini
 cd ansible && ansible-playbook -i inventory.ini site.yml   # cluster kubeadm + Flannel
 cd .. && bash load-images.sh           # build immagini e import nei nodi (niente registry)
@@ -72,10 +84,15 @@ kubectl -n mensa get pods              # attendere che siano tutti Running
 ```
 
 App su `http://<IP di un worker>:30080` (Service NodePort). Se il browser non raggiunge
-la rete delle VM (caso tipico con WSL): `kubectl -n mensa port-forward svc/frontend 8081:80
---address 0.0.0.0` e aprire http://localhost:8081.
+la rete delle VM (caso tipico con WSL): 
+IMPORTANTE: lanciare dalla cartella Cloud-mensa/locale
 
-Le foto dei piatti si caricano tramite l'API (`bash upload-images.sh`, default su
+`export KUBECONFIG=/mnt/c/Users/vitom/Desktop/Cloud-mensa/locale/ansible/kubeconfig`
+`kubectl -n mensa port-forward svc/frontend 8081:80--address 0.0.0.0`
+ e aprire http://localhost:8081.
+ Se si apre da browser 
+
+Le foto dei piatti si caricano tramite l'API (`bash upload-images.sh` (già integrato in bash up.sh), default su
 localhost:8081; passare l'URL base come argomento per il compose). Sul cluster le foto
 stanno in un volume `emptyDir`: dopo un riavvio del pod menu-service vanno ricaricate
 (con lo storage `s3` della Fase 2 sarebbero persistenti).
@@ -114,3 +131,22 @@ stanno in un volume `emptyDir`: dopo un riavvio del pod menu-service vanno ricar
   (world-writable): inventory passato con `-i`.
 - **Snap e /tmp**: Multipass installato via snap non legge `/tmp`, i tar delle immagini
   passano dalla home.
+- **Le VM senza internet dopo un riavvio**: il playbook si piantava su "Installa
+  containerd" perché `apt` non scaricava nulla. Negli errori si vedeva la differenza fra
+  IPv6 ("Network is unreachable", normale) e IPv4 ("connection timed out"): i pacchetti
+  uscivano e non tornava niente, mentre il DNS funzionava perché lo serve il gateway di
+  Multipass. Le regole di NAT non sono persistenti e si perdono al riavvio di WSL, e
+  Docker imposta la policy di FORWARD a DROP lasciando solo le proprie: le VM restavano
+  senza nessuno che inoltrasse il traffico. Rimedio in `fix-rete-wsl.sh`, richiamato
+  anche da `up.sh` quando il controllo di connettività fallisce. Per renderlo automatico
+  a ogni avvio di WSL si può copiare lo script in `/usr/local/bin/` e aggiungere a
+  `/etc/wsl.conf` una sezione `[boot]` con `command = /usr/local/bin/fix-rete-wsl.sh`.
+- **Un handler Ansible che non veniva mai eseguito**: subito dopo, `kubeadm init`
+  falliva sul controllo di `ip_forward`, benché il playbook lo impostasse. Gli handler
+  girano a fine play: essendo il playbook fallito prima, l'handler non era partito; al
+  rilancio il file esisteva già, quindi il task risultava `ok` e non `changed` — e un
+  task non cambiato non notifica il proprio handler. Il file c'era, il valore non era
+  mai stato caricato nel kernel. Risolto trasformando l'applicazione dei parametri
+  sysctl in un task normale, eseguito a ogni run. Da notare che si tratta di due
+  `ip_forward` distinti: uno in WSL, per far uscire le VM su internet, e uno dentro le
+  VM, richiesto da Kubernetes per la rete dei pod.
