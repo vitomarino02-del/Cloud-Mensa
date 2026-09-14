@@ -1,5 +1,6 @@
 # menu-service: catalogo piatti
 # imagePullPolicy IfNotPresent = scarica dal registro solo se non gia' presente sul nodo
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: menu-service
