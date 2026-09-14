@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: mensa/frontend:1.0
-          imagePullPolicy: Never
+          image: mavit2002/frontend:1.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
 ---

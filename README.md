@@ -41,13 +41,13 @@ locale/
 ├── inventory.tpl        template dell'inventory Ansible (compilato da Terraform con gli IP)
 ├── ansible/             site.yml: prerequisiti, kubeadm init, join dei worker, CNI Flannel
 ├── k8s/                 manifest: Deployment, Service, ConfigMap, NodePort 30080
-├── load-images.sh       build delle immagini e caricamento nel containerd dei nodi
+├── push-images.sh       build delle immagini e push nel repository docker hub
 ├── demo-images/         foto segnaposto dei piatti (1.jpg ... 9.jpg)
 └── upload-images.sh     carica le foto dei piatti tramite l'API del menu-service
 ```
 
 ## Esecuzione rapida (Docker Compose)
-
+## Alternativa, non fa parte della demo principale
 Prerequisito: Docker. Dalla cartella `locale/`:
 
 ```
@@ -59,7 +59,7 @@ Console RabbitMQ su http://localhost:15672 (guest/guest).
 
 ## Deployment sul cluster Kubernetes
 
-Prerequisiti: Multipass, Terraform, Ansible, kubectl, una chiave SSH in `~/.ssh/id_rsa`.
+Prerequisiti: Multipass, Terraform, Ansible, kubectl, una chiave SSH in `~/.ssh/id_rsa`, account dockerHub con docker login gia eseguito.
 Su Windows i comandi vanno lanciati da WSL2 (vedi note più sotto). Dalla cartella `locale/`:
 
 ```
@@ -67,8 +67,7 @@ bash up.sh
 ```
 
 Lo script incatena i passaggi: crea le VM con Terraform, verifica che raggiungano
-internet (vedi la nota sulla rete WSL più sotto), monta il cluster con Ansible,
-costruisce e importa le immagini nei nodi e applica i manifest. Per fermare tutto:
+internet (vedi la nota sulla rete WSL più sotto), monta il cluster con Ansible, costruisce le immagini e le pubblica su Docker Hub (da cui i nodi le prelevano) e applica i manifest.. Per fermare tutto:
 `bash down.sh`, oppure `multipass stop --all` se è solo una pausa, in quel caso al
 riavvio il cluster riparte da solo.
 
@@ -77,7 +76,7 @@ Questo file non fa altro che lanciare i seguenti comandi:
 ```
 terraform init && terraform apply      # crea le 3 VM e genera ansible/inventory.ini
 cd ansible && ansible-playbook -i inventory.ini site.yml   # cluster kubeadm + Flannel
-cd .. && bash load-images.sh           # build immagini e import nei nodi (niente registry)
+cd .. && bash push-images.sh           # build immagini e push nel registry docker hub
 export KUBECONFIG=$PWD/ansible/kubeconfig
 kubectl apply -f k8s/
 kubectl -n mensa get pods              # attendere che siano tutti Running
@@ -90,7 +89,7 @@ IMPORTANTE: lanciare dalla cartella Cloud-mensa/locale
 `export KUBECONFIG=/mnt/c/Users/vitom/Desktop/Cloud-mensa/locale/ansible/kubeconfig`
 `kubectl -n mensa port-forward svc/frontend 8081:80--address 0.0.0.0`
  e aprire http://localhost:8081.
- Se si apre da browser 
+ Se si apre da browser.
 
 Le foto dei piatti si caricano tramite l'API (`bash upload-images.sh` (già integrato in bash up.sh), default su
 localhost:8081; passare l'URL base come argomento per il compose). Sul cluster le foto
@@ -109,8 +108,7 @@ stanno in un volume `emptyDir`: dopo un riavvio del pod menu-service vanno ricar
   (RDS, ElastiCache, S3) senza modifiche applicative.
 - **containerd sui nodi**: Kubernetes parla con il runtime tramite CRI; Docker serve solo
   sulla macchina di sviluppo per costruire le immagini.
-- **imagePullPolicy: Never + load-images.sh**: in locale non c'è un registry, le immagini
-  vengono importate direttamente nel containerd dei nodi.
+- **Registro delle immagini**: le immagini dei quattro servizi sono pubblicate su Docker Hub (mavit2002/...) e scaricate autonomamente dai nodi, come già avviene per le immagini ufficiali di Postgres, Redis e RabbitMQ. È lo stesso modello della Fase 2, dove il registro è Amazon ECR e l'accesso richiede credenziali temporanee. Lo script load-images.sh resta come alternativa per ambienti senza connettività: esporta le immagini in archivi e le importa nel containerd di ciascun nodo, e in quel caso i manifest richiedono imagePullPolicy: Never.
 
 ## Problemi incontrati e soluzioni
 
@@ -129,8 +127,7 @@ stanno in un volume `emptyDir`: dopo un riavvio del pod menu-service vanno ricar
   in WSL2, che espone KVM: Multipass con driver qemu, Terraform e Ansible girano lì.
   Attenzione anche ad Ansible che ignora `ansible.cfg` nelle cartelle montate da Windows
   (world-writable): inventory passato con `-i`.
-- **Snap e /tmp**: Multipass installato via snap non legge `/tmp`, i tar delle immagini
-  passano dalla home.
+
 - **Le VM senza internet dopo un riavvio**: il playbook si piantava su "Installa
   containerd" perché `apt` non scaricava nulla. Negli errori si vedeva la differenza fra
   IPv6 ("Network is unreachable", normale) e IPv4 ("connection timed out"): i pacchetti

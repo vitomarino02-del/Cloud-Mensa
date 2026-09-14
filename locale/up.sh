@@ -3,14 +3,14 @@
 # Uso: bash up.sh
 set -e
 
-echo "== 1/5 macchine virtuali =="
+echo "== 1/6 macchine virtuali =="
 terraform init -input=false
 terraform apply -auto-approve
 
 echo
-echo "== 2/5 verifica rete delle VM =="
-# controllo prima di lanciare Ansible: se le VM non raggiungono internet
-# l'installazione dei pacchetti fallirebbe a meta' playbook
+echo "== 2/6 verifica rete delle VM =="
+# controllo prima di proseguire: senza internet i nodi non installerebbero
+# i pacchetti durante il playbook, ne' scaricherebbero le immagini dal registro
 if ! multipass exec mensa-cp -- ping -c1 -W3 8.8.8.8 > /dev/null 2>&1; then
   echo "le VM non escono su internet, applico le regole di rete"
   sudo bash fix-rete-wsl.sh
@@ -24,7 +24,7 @@ fi
 echo "rete ok"
 
 echo
-echo "== 3/5 cluster Kubernetes =="
+echo "== 3/6 cluster Kubernetes =="
 cd ansible
 ansible-playbook -i inventory.ini site.yml
 cd ..
@@ -32,9 +32,15 @@ export KUBECONFIG="$PWD/ansible/kubeconfig"
 kubectl get nodes
 
 echo
-echo "== 4/5 immagini nei nodi =="
-# senza registry le immagini vanno costruite e importate in ogni worker
-bash load-images.sh
+echo "== 4/6 pubblicazione delle immagini sul registro =="
+# le immagini vengono costruite qui e pubblicate su Docker Hub;
+# saranno i nodi a scaricarle quando lo scheduler vi assegna i pod
+if ! grep -q "index.docker.io" "$HOME/.docker/config.json" 2>/dev/null; then
+  echo "ERRORE: non risulti autenticato su Docker Hub."
+  echo "Esegui prima:  docker login -u mavit2002"
+  exit 1
+fi
+bash push-images.sh
 
 echo
 echo "== 5/6 deploy dell'applicazione =="
@@ -51,7 +57,7 @@ bash upload-images.sh "$APP"
 echo
 echo "App raggiungibile su: $APP"
 echo
-echo "Dal browser di Windows conviene invece il port-forward:"
+echo "Dal browser di Windows devi fare il port-forward:"
 echo "  export KUBECONFIG=$PWD/ansible/kubeconfig"
 echo "  kubectl -n mensa port-forward svc/frontend 8081:80 --address 0.0.0.0"
-echo "  poi apri http://localhost:8081"
+echo "  poi apri http://localhost:8081 per usare l'app"

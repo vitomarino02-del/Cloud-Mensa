@@ -1,6 +1,5 @@
 # menu-service: catalogo piatti
-# imagePullPolicy Never = usa l'immagine caricata a mano nei nodi (niente registry in locale)
-apiVersion: apps/v1
+# imagePullPolicy IfNotPresent = scarica dal registro solo se non gia' presente sul nodo
 kind: Deployment
 metadata:
   name: menu-service
@@ -15,8 +14,8 @@ spec:
     spec:
       containers:
         - name: menu-service
-          image: mensa/menu-service:1.0
-          imagePullPolicy: Never
+          image: mavit2002/menu-service:1.0
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef: { name: mensa-config }
           ports:
