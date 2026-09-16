@@ -1,2 +1,14 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Script e file letti da Linux: sempre con fine riga LF, anche se git
+# e' configurato con core.autocrlf=true (altrimenti bash fallisce con $'\r')
+*.sh      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.tf      text eol=lf
+*.tpl     text eol=lf
+*.tftpl   text eol=lf
+*.py      text eol=lf
+*.conf    text eol=lf
+Dockerfile text eol=lf
