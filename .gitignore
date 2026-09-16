@@ -18,3 +18,8 @@ kubeconfig
 
 # Varie
 .env
+
+# Chiavi SSH scritte dalle pipeline dai secret: mai nel repo
+id_rsa
+id_rsa.pub
+tfplan

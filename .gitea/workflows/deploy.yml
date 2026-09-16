@@ -1,0 +1,74 @@
+# Pipeline dell'applicazione (Fase 1, locale) - Gitea + act_runner.
+# Ricalca lab/k8s-gitea-cicd/.gitea/workflows/deploy.yml; in piu' costruisce e
+# pubblica le immagini, perche' i servizi sono nostri (il lab usa nginx).
+# Costruisce le immagini, le pubblica su Docker Hub e le distribuisce sul cluster.
+# Parte quando cambiano il codice dei servizi o i manifest, oppure a mano.
+# Il cluster deve gia' esistere (infra.yml ha scritto ~/mensa-kubeconfig).
+# Secret richiesti: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'locale/k8s/**'
+      - 'locale/menu-service/**'
+      - 'locale/order-service/**'
+      - 'locale/kitchen-service/**'
+      - 'locale/frontend/**'
+      - '.gitea/workflows/deploy.yml'
+  workflow_dispatch:
+
+env:
+  TAG: ${{ gitea.sha }}        # tag = commit: ogni deploy e' tracciabile
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: locale
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verifica che il cluster risponda
+        run: KUBECONFIG=~/mensa-kubeconfig kubectl get nodes
+
+      - name: Login su Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build e push delle immagini
+        run: |
+          for s in menu-service order-service kitchen-service frontend; do
+            docker build -t "${{ secrets.DOCKERHUB_USERNAME }}/$s:$TAG" ./$s
+            docker push "${{ secrets.DOCKERHUB_USERNAME }}/$s:$TAG"
+          done
+
+      # Nei manifest le immagini hanno il tag 1.0 (usato da up.sh): qui lo si
+      # sostituisce con lo SHA del commit prima dell'apply, cosi' c'e' un solo rollout.
+      - name: Applica i manifest
+        run: |
+          sed -i -E "s#(image: [^/ ]+/(menu-service|order-service|kitchen-service|frontend)):.*#\1:$TAG#" k8s/*.yaml
+          grep -h "image:" k8s/*.yaml
+          KUBECONFIG=~/mensa-kubeconfig kubectl apply -f k8s/
+
+      - name: Attendi il rollout
+        run: |
+          export KUBECONFIG=~/mensa-kubeconfig
+          for d in menu-service order-service kitchen-service frontend; do
+            kubectl -n mensa rollout status deployment/$d --timeout=300s
+          done
+
+      # le foto stanno in un emptyDir: dopo il rollout del menu-service vanno ricaricate
+      - name: Ricarica le foto dei piatti
+        run: |
+          export KUBECONFIG=~/mensa-kubeconfig
+          WORKER_IP=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
+            -o jsonpath='{.items[0].status.addresses[0].address}')
+          bash upload-images.sh "http://${WORKER_IP}:30080"
+
+      - name: Pod in esecuzione
+        run: KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get pods -o wide
+
+      - name: Service del frontend
+        run: KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get svc frontend

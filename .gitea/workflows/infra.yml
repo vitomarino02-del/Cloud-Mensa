@@ -1,0 +1,98 @@
+# Pipeline dell'infrastruttura (Fase 1, locale) - Gitea + act_runner.
+# Ricalca lab/k8s-gitea-cicd/.gitea/workflows/infra.yml del laboratorio
+# (Terraform al posto di OpenTofu, un solo playbook site.yml).
+#
+# Il runner gira sull'host (self-hosted), perche' Multipass crea VM locali.
+# I file che devono sopravvivere tra i job stanno nella home:
+#   ~/mensa-terraform.tfstate   stato Terraform
+#   ~/mensa-hosts.ini           inventory Ansible (scritto da Terraform)
+#   ~/mensa-kubeconfig          kubeconfig del cluster (usato da deploy.yml)
+# Secret richiesti: SSH_PRIVATE_KEY, SSH_PUBLIC_KEY
+name: Provision K8s Cluster
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'locale/main.tf'
+      - 'locale/cloud-init.yaml.tftpl'
+      - 'locale/inventory.tpl'
+      - 'locale/ansible/**'
+  workflow_dispatch:
+
+env:
+  # chiavi scritte dai secret nella cartella di lavoro, come nel laboratorio
+  TF_VAR_ssh_public_key_path: ./id_rsa.pub
+  TF_VAR_ssh_private_key_path: ./locale/id_rsa   # relativo alla radice del repo
+  TF_VAR_inventory_path: ~/mensa-hosts.ini
+
+jobs:
+  # ── Job 1: VM con Terraform ────────────────────────────────────────────────
+  provision:
+    runs-on: self-hosted   # shell runner: servono multipass e terraform sull'host
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scrivi la coppia di chiavi SSH
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > locale/id_rsa
+          echo "${{ secrets.SSH_PUBLIC_KEY }}"  > locale/id_rsa.pub
+          chmod 600 locale/id_rsa
+
+      - name: terraform init
+        run: terraform -chdir=locale init -input=false -reconfigure -backend-config="path=${HOME}/mensa-terraform.tfstate"
+
+      - name: terraform plan
+        run: terraform -chdir=locale plan -input=false -out=tfplan
+
+      - name: terraform apply
+        run: terraform -chdir=locale apply -input=false -auto-approve tfplan
+
+      - name: Mostra gli output
+        run: terraform -chdir=locale output
+
+  # ── Job 2: cluster Kubernetes con Ansible ──────────────────────────────────
+  configure:
+    runs-on: self-hosted
+    needs: provision
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scrivi la chiave SSH privata
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > locale/id_rsa
+          chmod 600 locale/id_rsa
+
+      # Differenza dal laboratorio: con Docker in WSL le VM possono perdere
+      # internet (FORWARD DROP). Le regole di fix-rete-wsl.sh richiedono sudo,
+      # quindi il runner non le applica: si ferma con un messaggio chiaro.
+      - name: Verifica che le VM escano su internet
+        run: |
+          if ! multipass exec mensa-cp -- ping -c1 -W3 8.8.8.8 > /dev/null 2>&1; then
+            echo "Le VM non raggiungono internet. Dal terminale WSL lancia:"
+            echo "  sudo bash locale/fix-rete-wsl.sh"
+            echo "e poi rilancia questa pipeline."
+            exit 1
+          fi
+
+      - name: Attendi che le VM accettino SSH
+        run: sleep 30
+
+      # un solo playbook con tre play: prerequisiti, control plane, worker
+      - name: Configura il cluster con Ansible
+        run: ansible-playbook -i ~/mensa-hosts.ini locale/ansible/site.yml
+
+      - name: Salva il kubeconfig sull'host
+        run: |
+          CONTROL_PLANE_IP=$(grep ansible_host ~/mensa-hosts.ini | head -1 | grep -oP 'ansible_host=\K\S+')
+          scp -i locale/id_rsa \
+            -o StrictHostKeyChecking=no \
+            ubuntu@${CONTROL_PLANE_IP}:/home/ubuntu/.kube/config \
+            ~/mensa-kubeconfig
+          # l'indirizzo dell'API server deve essere raggiungibile dall'host
+          sed -i "s|https://[0-9.]*:6443|https://${CONTROL_PLANE_IP}:6443|" ~/mensa-kubeconfig
+          chmod 600 ~/mensa-kubeconfig
+          echo "kubeconfig salvato, verifico la connessione..."
+          KUBECONFIG=~/mensa-kubeconfig kubectl get nodes

@@ -1,0 +1,35 @@
+# Distrugge il cluster locale. Solo avvio manuale, mai automatico:
+# Gitea -> Actions -> destroy.yml -> Run workflow
+name: Destroy K8s Cluster
+
+on:
+  workflow_dispatch:
+
+env:
+  TF_VAR_ssh_public_key_path: ./id_rsa.pub
+  TF_VAR_ssh_private_key_path: ./locale/id_rsa
+  TF_VAR_inventory_path: ~/mensa-hosts.ini
+
+jobs:
+  destroy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scrivi le chiavi SSH dai secret
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > locale/id_rsa
+          echo "${{ secrets.SSH_PUBLIC_KEY }}"  > locale/id_rsa.pub
+          chmod 600 locale/id_rsa
+
+      # -reconfigure: il checkout e' nuovo, la cartella .terraform non c'e'
+      - name: terraform init
+        run: terraform -chdir=locale init -input=false -reconfigure -backend-config="path=${HOME}/mensa-terraform.tfstate"
+
+      - name: terraform destroy
+        run: terraform -chdir=locale destroy -input=false -auto-approve
+
+      - name: Pulisci i file lasciati sull'host
+        run: |
+          rm -f ~/mensa-kubeconfig ~/mensa-hosts.ini
+          multipass list

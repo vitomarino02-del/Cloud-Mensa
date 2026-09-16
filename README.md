@@ -30,6 +30,9 @@ kitchen-service consuma l'evento → il personale avanza lo stato dal display cu
 ## Struttura del repo
 
 ```
+.gitea/workflows/        pipeline CI/CD per Gitea: infra.yml, deploy.yml, destroy.yml
+setup-gitea-repo.sh      crea il repo su Gitea, abilita Actions e carica i secret
+CICD-GITEA.md            guida completa alle pipeline
 locale/
 ├── menu-service/        microservizio catalogo (app.py, Dockerfile, requirements.txt)
 ├── order-service/       microservizio ordini
@@ -57,7 +60,120 @@ docker compose up --build
 App su http://localhost:8080 (scheda "Menu & Ordina" e scheda "Display Cucina").
 Console RabbitMQ su http://localhost:15672 (guest/guest).
 
-## Deployment sul cluster Kubernetes
+## Deployment sul cluster Kubernetes con la pipeline (Gitea)
+
+La strada principale, come nel laboratorio *Kubernetes GitOps with Gitea*
+([lab/k8s-gitea-cicd](https://github.com/unict-cloud-systems/lab-2026/tree/main/lab/k8s-gitea-cicd)),
+è un push sul repo ospitato su Gitea. Il runner `act_runner` gira in WSL
+(`runs-on: self-hosted`) ed esegue tre pipeline:
+
+| Pipeline | Quando parte | Cosa fa |
+|---|---|---|
+| `infra.yml` | push su `main.tf`, template o `ansible/**` (o a mano) | Terraform crea le VM, Ansible monta il cluster, il kubeconfig viene salvato in `~/mensa-kubeconfig` |
+| `deploy.yml` | push sui servizi o su `k8s/**` (o a mano) | build delle immagini, push su Docker Hub con tag = SHA del commit, `kubectl apply`, attesa del rollout, foto dei piatti |
+| `destroy.yml` | solo a mano | `terraform destroy` e pulizia dei file sull'host |
+
+Un cambio all'applicazione non ricrea il cluster, e un cambio all'infrastruttura non
+rifà il deploy. Lo stato di Terraform (`~/mensa-terraform.tfstate`) e l'inventory
+(`~/mensa-hosts.ini`) stanno nella home di WSL e non nel repo, perché il runner fa un
+checkout nuovo a ogni job. Le chiavi SSH e le credenziali di Docker Hub arrivano dai
+secret di Gitea.
+
+### Come si avvia, passo passo
+
+Tutti i comandi vanno nel **terminale WSL**. Servono tre terminali aperti:
+uno per Gitea, uno per il runner, uno per lavorare. I dettagli e la tabella dei
+problemi sono in [CICD-GITEA.md](CICD-GITEA.md).
+
+#### A. Preparazione (una volta sola)
+
+1. **Strumenti.** Devono esserci multipass, terraform, ansible, kubectl, docker, jq,
+   git, **node 20+** (serve al runner per `actions/checkout`) e la chiave `~/.ssh/id_rsa`:
+   ```bash
+   for c in multipass terraform ansible-playbook kubectl docker jq git node; do
+     printf '%-18s' "$c"; command -v $c >/dev/null && echo OK || echo MANCA
+   done
+   ```
+2. **Gitea** (terminale 1):
+   ```bash
+   mkdir -p ~/gitea/data ~/gitea/conf && cd ~/gitea
+   curl -L https://dl.gitea.com/gitea/1.26.0/gitea-1.26.0-linux-amd64 -o gitea && chmod +x gitea
+   ./gitea web --config conf/app.ini --port 3000
+   ```
+   Su http://localhost:3000 completare l'installazione (database **SQLite3**) e creare
+   l'utente amministratore.
+3. **Runner** (terminale 2). Token da *Site Administration → Actions → Runners →
+   Create new runner*:
+   ```bash
+   mkdir -p ~/act-runner && cd ~/act-runner
+   curl -sSfL https://dl.gitea.com/act_runner/0.4.1/act_runner-0.4.1-linux-amd64 -o act_runner && chmod +x act_runner
+   ./act_runner register --instance http://localhost:3000 --token <TOKEN-RUNNER> \
+     --name host-runner --labels "self-hosted,linux,multipass" --no-interactive
+   ./act_runner daemon
+   ```
+   Nella pagina Runners deve risultare **Idle**.
+4. **Token**: uno di Gitea (*Settings → Applications*, permessi repository e user in
+   lettura/scrittura) e uno di Docker Hub (*Account settings → Personal access tokens*).
+5. **Repo e secret su Gitea** (terminale 3):
+   ```bash
+   cd /mnt/c/Users/vitom/Desktop/Cloud-Mensa
+   GITEA_TOKEN=<token-gitea> DOCKERHUB_TOKEN=<token-dockerhub> bash setup-gitea-repo.sh
+   git remote add gitea http://localhost:3000/<utente>/Cloud-Mensa.git
+   ```
+6. **Stato di Terraform nella home** (se esiste ancora quello vecchio):
+   ```bash
+   [ -f locale/terraform.tfstate ] && [ ! -f ~/mensa-terraform.tfstate ] && \
+     mv locale/terraform.tfstate ~/mensa-terraform.tfstate
+   ```
+
+#### B. Avvio (ogni volta)
+
+1. **Docker Desktop** acceso per primo.
+2. **Terminale 1**: `cd ~/gitea && ./gitea web --config conf/app.ini --port 3000`
+3. **Terminale 2**: `cd ~/act-runner && ./act_runner daemon`
+4. **Terminale 3**, rete delle VM:
+   ```bash
+   cd /mnt/c/Users/vitom/Desktop/Cloud-Mensa
+   sudo bash locale/fix-rete-wsl.sh
+   ```
+5. **Cluster**: la prima volta `git push gitea main`; le volte successive da Gitea
+   *Cloud-Mensa → Actions → **Provision K8s Cluster** → Run workflow*.
+   Circa 10-15 minuti: Terraform crea le VM, Ansible monta il cluster, il kubeconfig
+   finisce in `~/mensa-kubeconfig`.
+6. **Applicazione**: quando il cluster è verde, *Actions → **Deploy to Kubernetes** →
+   Run workflow*. (Al primo push parte da solo ma fallisce perché il cluster non c'è
+   ancora: va solo rilanciato.)
+7. **Verifica**:
+   ```bash
+   KUBECONFIG=~/mensa-kubeconfig kubectl get nodes           # 3 nodi Ready
+   KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get pods   # tutti Running
+   KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get deploy -o wide   # tag = SHA del commit
+   ```
+8. **Browser di Windows**:
+   ```bash
+   KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa port-forward svc/frontend 8081:80 --address 0.0.0.0
+   ```
+   e aprire http://localhost:8081.
+9. **Aggiornare l'app**: modifica, `git commit`, `git push gitea main` → parte da solo
+   *Deploy to Kubernetes*. Rollback: `git revert HEAD --no-edit && git push gitea main`.
+
+#### C. Spegnimento
+
+- Pausa: `multipass stop --all` (al riavvio il cluster riparte da solo).
+- Distruzione: *Actions → **Destroy K8s Cluster** → Run workflow*.
+- Gitea e runner: Ctrl+C nei rispettivi terminali.
+
+#### Insieme alla versione AWS
+
+Le due versioni possono girare contemporaneamente: repo, stato Terraform, registry e
+cluster sono separati. Conviene avviare prima AWS (RDS è lento) e usare due comandi
+distinti per non sbagliare cluster:
+```bash
+alias kloc='KUBECONFIG=~/mensa-kubeconfig kubectl'
+alias kaws='KUBECONFIG=~/mensa-aws-kubeconfig kubectl'
+```
+
+## Deployment sul cluster Kubernetes a mano (piano B)
 
 Prerequisiti: Multipass, Terraform, Ansible, kubectl, una chiave SSH in `~/.ssh/id_rsa`, account dockerHub con docker login gia eseguito.
 Su Windows i comandi vanno lanciati da WSL2 (vedi note più sotto). Dalla cartella `locale/`:
@@ -71,10 +187,12 @@ internet (vedi la nota sulla rete WSL più sotto), monta il cluster con Ansible,
 `bash down.sh`, oppure `multipass stop --all` se è solo una pausa, in quel caso al
 riavvio il cluster riparte da solo.
 
-Questo file non fa altro che lanciare i seguenti comandi:
+`up.sh` usa lo stesso file di stato della pipeline, quindi le due strade si possono
+alternare senza creare VM doppie. Questo file non fa altro che lanciare i seguenti comandi:
 
 ```
-terraform init && terraform apply      # crea le 3 VM e genera ansible/inventory.ini
+terraform init -backend-config="path=$HOME/mensa-terraform.tfstate"
+terraform apply                        # crea le 3 VM e genera ansible/inventory.ini
 cd ansible && ansible-playbook -i inventory.ini site.yml   # cluster kubeadm + Flannel
 cd .. && bash push-images.sh           # build immagini e push nel registry docker hub
 export KUBECONFIG=$PWD/ansible/kubeconfig
@@ -87,7 +205,7 @@ la rete delle VM (caso tipico con WSL):
 IMPORTANTE: lanciare dalla cartella Cloud-mensa/locale
 
 `export KUBECONFIG=/mnt/c/Users/vitom/Desktop/Cloud-mensa/locale/ansible/kubeconfig`
-`kubectl -n mensa port-forward svc/frontend 8081:80--address 0.0.0.0`
+`kubectl -n mensa port-forward svc/frontend 8081:80 --address 0.0.0.0`
  e aprire http://localhost:8081.
  Se si apre da browser.
 

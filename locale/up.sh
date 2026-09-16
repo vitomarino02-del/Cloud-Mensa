@@ -1,10 +1,16 @@
 #!/bin/bash
 # Avvia tutto l'ambiente locale: VM, cluster Kubernetes, applicazione.
 # Uso: bash up.sh
+# Strada principale: le pipeline Gitea (.gitea/workflows). Questo script resta
+# come piano B, per avviare tutto a mano se il runner non e' disponibile.
 set -e
 
 echo "== 1/6 macchine virtuali =="
-terraform init -input=false
+# una tantum: sposta lo stato dalla vecchia posizione (cartella del repo) alla home
+if [ -f terraform.tfstate ] && [ ! -f "$HOME/mensa-terraform.tfstate" ]; then
+  mv -n terraform.tfstate "$HOME/mensa-terraform.tfstate"
+fi
+terraform init -input=false -reconfigure -backend-config="path=$HOME/mensa-terraform.tfstate"
 terraform apply -auto-approve
 
 echo

@@ -14,6 +14,12 @@ terraform {
       version = "~> 2.5"
     }
   }
+
+  # Stato locale, ma FUORI dalla cartella del repo: la pipeline Gitea fa un
+  # checkout nuovo a ogni job, quindi lo stato deve stare in un posto fisso
+  # dell'host. Il percorso si passa a init:
+  #   terraform init -backend-config="path=$HOME/mensa-terraform.tfstate"
+  backend "local" {}
 }
 
 provider "multipass" {}
@@ -50,6 +56,17 @@ variable "ssh_private_key_path" {
   default = "~/.ssh/id_rsa"
 }
 
+# Dove scrivere l'inventory Ansible. Vuoto = ansible/inventory.ini (uso da up.sh);
+# la pipeline lo mette nella home dell'host (~/mensa-hosts.ini) per condividerlo tra i job.
+variable "inventory_path" {
+  type    = string
+  default = ""
+}
+
+locals {
+  inventory_file = var.inventory_path != "" ? pathexpand(var.inventory_path) : "${path.module}/ansible/inventory.ini"
+}
+
 # cloud-init: primo avvio delle VM (utente + chiave SSH per Ansible + docker)
 resource "local_file" "cloudinit" {
   filename = "${path.module}/.cloud-init.generated.yaml"
@@ -81,7 +98,7 @@ resource "multipass_instance" "worker" {
 
 # Inventory per Ansible generato con gli IP reali delle VM
 resource "local_file" "ansible_inventory" {
-  filename = "${path.module}/ansible/inventory.ini"
+  filename = local.inventory_file
   content = templatefile("${path.module}/inventory.tpl", {
     cp_ip        = multipass_instance.control_plane.ipv4
     worker_ips   = [for w in multipass_instance.worker : w.ipv4]
