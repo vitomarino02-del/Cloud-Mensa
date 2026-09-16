@@ -31,8 +31,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # il percorso del kubeconfig si calcola con $HOME e vale per tutti gli step
+      - name: Imposta il kubeconfig
+        run: |
+          echo "utente: $(whoami)  home: $HOME"
+          ls -l "$HOME/mensa-kubeconfig"
+          echo "KUBECONFIG=$HOME/mensa-kubeconfig" >> "$GITHUB_ENV"
+
       - name: Verifica che il cluster risponda
-        run: KUBECONFIG=~/mensa-kubeconfig kubectl get nodes
+        run: |
+          echo "KUBECONFIG=$KUBECONFIG"
+          kubectl get nodes
 
       - name: Login su Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
@@ -50,11 +59,10 @@ jobs:
         run: |
           sed -i -E "s#(image: [^/ ]+/(menu-service|order-service|kitchen-service|frontend)):.*#\1:$TAG#" k8s/*.yaml
           grep -h "image:" k8s/*.yaml
-          KUBECONFIG=~/mensa-kubeconfig kubectl apply -f k8s/
+          kubectl apply -f k8s/
 
       - name: Attendi il rollout
         run: |
-          export KUBECONFIG=~/mensa-kubeconfig
           for d in menu-service order-service kitchen-service frontend; do
             kubectl -n mensa rollout status deployment/$d --timeout=300s
           done
@@ -62,13 +70,12 @@ jobs:
       # le foto stanno in un emptyDir: dopo il rollout del menu-service vanno ricaricate
       - name: Ricarica le foto dei piatti
         run: |
-          export KUBECONFIG=~/mensa-kubeconfig
           WORKER_IP=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
             -o jsonpath='{.items[0].status.addresses[0].address}')
           bash upload-images.sh "http://${WORKER_IP}:30080"
 
       - name: Pod in esecuzione
-        run: KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get pods -o wide
+        run: kubectl -n mensa get pods -o wide
 
       - name: Service del frontend
-        run: KUBECONFIG=~/mensa-kubeconfig kubectl -n mensa get svc frontend
+        run: kubectl -n mensa get svc frontend
