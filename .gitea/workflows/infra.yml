@@ -1,12 +1,5 @@
 # Pipeline dell'infrastruttura (Fase 1, locale) - Gitea + act_runner.
-# Ricalca lab/k8s-gitea-cicd/.gitea/workflows/infra.yml del laboratorio
-# (Terraform al posto di OpenTofu, un solo playbook site.yml).
-#
 # Il runner gira sull'host (self-hosted), perche' Multipass crea VM locali.
-# I file che devono sopravvivere tra i job stanno nella home:
-#   ~/mensa-terraform.tfstate   stato Terraform
-#   ~/mensa-hosts.ini           inventory Ansible (scritto da Terraform)
-#   ~/mensa-kubeconfig          kubeconfig del cluster (usato da deploy.yml)
 # Secret richiesti: SSH_PRIVATE_KEY, SSH_PUBLIC_KEY
 name: Provision K8s Cluster
 
@@ -21,7 +14,7 @@ on:
   workflow_dispatch:
 
 env:
-  # chiavi scritte dai secret nella cartella di lavoro, come nel laboratorio
+  # chiavi scritte dai secret nella cartella di lavoro
   TF_VAR_ssh_public_key_path: ./id_rsa.pub
   TF_VAR_ssh_private_key_path: ./locale/id_rsa   # relativo alla radice del repo
   TF_VAR_inventory_path: ~/mensa-hosts.ini
@@ -65,8 +58,7 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > locale/id_rsa
           chmod 600 locale/id_rsa
 
-      # Differenza dal laboratorio: con Docker in WSL le VM possono perdere
-      # internet (FORWARD DROP). Le regole di fix-rete-wsl.sh richiedono sudo,
+      #con Docker in WSL le VM possono perdere internet (FORWARD DROP). Le regole di fix-rete-wsl.sh richiedono sudo,
       # quindi il runner non le applica: si ferma con un messaggio chiaro.
       - name: Verifica che le VM escano su internet
         run: |

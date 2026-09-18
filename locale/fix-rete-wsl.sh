@@ -1,13 +1,10 @@
 #!/bin/bash
 # Ripristina l'accesso a internet delle VM Multipass quando si lavora da WSL.
-#
 # Le regole di NAT non sopravvivono al riavvio di WSL, e Docker imposta la
 # policy della catena FORWARD a DROP: senza queste regole le VM risolvono i
 # nomi (il DNS lo serve il gateway di Multipass) ma nessuno inoltra il loro
 # traffico verso internet, e apt va in timeout.
-#
 # Uso: sudo bash fix-rete-wsl.sh
-# Per renderlo automatico a ogni avvio di WSL, vedere il README.
 
 BRIDGE="mpqemubr0"
 

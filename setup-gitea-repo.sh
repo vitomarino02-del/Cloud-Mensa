@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 # setup-gitea-repo.sh - crea il repo su Gitea, abilita Actions e carica i secret.
-# Adattato da lab/k8s-gitea-cicd/setup-repo.sh del laboratorio.
-#
+
 # Prerequisiti:
 #   - Gitea su http://localhost:3000   (lab/gitea-setup/install-gitea.sh)
-#   - act_runner registrato con etichette self-hosted,linux,multipass
-#     (lab/gitea-setup/register-runner.sh) e avviato: ./act_runner daemon
+#   - act_runner registrato con etichette self-hosted,linux,multipass e avviato: ./act_runner daemon
 #   - chiavi SSH del PC in ~/.ssh/id_rsa e ~/.ssh/id_rsa.pub
-#     (le stesse gia' installate nelle VM)
 #   - un access token di Docker Hub
-#
 # Uso (da WSL, nella cartella del repo):
 #   GITEA_TOKEN=<token-gitea> DOCKERHUB_TOKEN=<token-dockerhub> ./setup-gitea-repo.sh
 #

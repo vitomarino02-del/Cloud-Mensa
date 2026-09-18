@@ -1,6 +1,4 @@
 # Pipeline dell'applicazione (Fase 1, locale) - Gitea + act_runner.
-# Ricalca lab/k8s-gitea-cicd/.gitea/workflows/deploy.yml; in piu' costruisce e
-# pubblica le immagini, perche' i servizi sono nostri (il lab usa nginx).
 # Costruisce le immagini, le pubblica su Docker Hub e le distribuisce sul cluster.
 # Parte quando cambiano il codice dei servizi o i manifest, oppure a mano.
 # Il cluster deve gia' esistere (infra.yml ha scritto ~/mensa-kubeconfig).
